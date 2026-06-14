@@ -1,6 +1,6 @@
 export const GRAVITY = 1800 // px/s^2
 export const HORIZONTAL_SPEED = 300 // px/s
-export const JUMP_VELOCITY = -620 // px/s
+export const JUMP_VELOCITY = -700 // px/s
 export const MAX_FALL_SPEED = 1200 // px/s
 export const COYOTE_TIME_MS = 80
 export const JUMP_BUFFER_MS = 100
