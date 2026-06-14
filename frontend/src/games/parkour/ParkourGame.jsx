@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import {
   attachRenderer,
   detachRenderer,
@@ -10,7 +10,7 @@ import {
   calculateFinalResult,
 } from './State.js'
 import { createInputReader } from './engine/Input.js'
-import { updatePlayer, touchCheckpoint, filterActivePlatforms, createCrumblingState, updateCrumblingTimers, getMovingPlatformState } from './engine/Physics.js'
+import { updatePlayer, touchCheckpoint, filterActivePlatforms, createCrumblingState, updateCrumblingTimers, getMovingPlatformState, isPlatformActive } from './engine/Physics.js'
 import { stages } from './levels/index.js'
 import { createRenderer, renderFrame } from './rendering/Renderer.js'
 import { createCamera, followCamera } from './engine/Camera.js'
@@ -27,13 +27,19 @@ const PANEL_MAP = {
 
 const rendererRegistry = {}
 let particleSystem = createParticleSystem()
+let crumblingState = createCrumblingState()
 
 function resizeCanvas(canvas) {
   const dpr = window.devicePixelRatio || 1
   const rect = canvas.getBoundingClientRect()
-  canvas.width = Math.round(rect.width * dpr)
-  canvas.height = Math.round(rect.height * dpr)
-  canvas.getContext('2d').scale(dpr, dpr)
+  const w = Math.round(rect.width * dpr)
+  const h = Math.round(rect.height * dpr)
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w
+    canvas.height = h
+  }
+  const ctx = canvas.getContext('2d')
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 }
 
 export default function ParkourGame({ canvasId, player1, player2, pressedKeys }) {
@@ -42,14 +48,14 @@ export default function ParkourGame({ canvasId, player1, player2, pressedKeys })
   const inputReaderRef = useRef(null)
   const rendererRef = useRef(null)
   const cameraRef = useRef(null)
-  const [gamePhase, setGamePhase] = useState('idle')
+  const [isGameOver, setIsGameOver] = useState(false)
   const setPhase = useGameStore((s) => s.setPhase)
 
   const panel = PANEL_MAP[canvasId]
 
   const handleRestart = useCallback(() => {
     restartRun()
-    setGamePhase('countdown')
+    setIsGameOver(false)
   }, [])
 
   const handleBackToSelect = useCallback(() => {
@@ -68,6 +74,7 @@ export default function ParkourGame({ canvasId, player1, player2, pressedKeys })
       hasInitRef.current = true
       inputReaderRef.current = createInputReader()
       particleSystem = createParticleSystem()
+      crumblingState = createCrumblingState()
 
       const snap = getSnapshot()
       if (!snap.runId) {
@@ -108,12 +115,16 @@ export default function ParkourGame({ canvasId, player1, player2, pressedKeys })
         }
 
         const players = [snap.player1, snap.player2].filter(Boolean)
-        renderFrame(r, players, stage, particleSystem)
+        const visiblePlatforms = stage.platforms.filter(p => isPlatformActive(p, crumblingState))
+        const visibleStage = { ...stage, platforms: visiblePlatforms }
+        renderFrame(r, players, visibleStage, particleSystem)
         const ctx = canvas.getContext('2d')
         drawOverlay(ctx, canvas, snap, playerId, snap.currentStageIndex)
 
-        if (snap.phase !== gamePhase) {
-          setGamePhase(snap.phase)
+        if (snap.phase === 'gameOver' && !isGameOver) {
+          setIsGameOver(true)
+        } else if (snap.phase !== 'gameOver' && isGameOver) {
+          setIsGameOver(false)
         }
       },
       camera,
@@ -132,14 +143,13 @@ export default function ParkourGame({ canvasId, player1, player2, pressedKeys })
         if (snap.phase === 'racing') {
           const input = inputReaderRef.current.read(pressedKeys)
 
+          const crumblingPlatforms = stage.platforms.filter(p => p.type === 'crumbling')
+          updateCrumblingTimers(crumblingState, crumblingPlatforms, [snap.player1, snap.player2].filter(Boolean), dt)
+
           const stateKeyToPhysicsKey = { player1: 'p1', player2: 'p2' }
           for (const [stateKey, physicsKey] of Object.entries(stateKeyToPhysicsKey)) {
             const playerData = snap[stateKey]
             if (!playerData) continue
-
-            const crumblingState = createCrumblingState()
-            const crumblingPlatforms = stage.platforms.filter(p => p.type === 'crumbling')
-            updateCrumblingTimers(crumblingState, crumblingPlatforms, [playerData], dt)
 
             const movingPlatforms = stage.movingPlatforms.map(mp => getMovingPlatformState(mp, snap.raceTimeMs, dt))
             const activePlatforms = filterActivePlatforms([...stage.platforms, ...movingPlatforms], crumblingState)
@@ -200,8 +210,6 @@ export default function ParkourGame({ canvasId, player1, player2, pressedKeys })
     )
   }
 
-  const showButtons = gamePhase === 'gameOver'
-
   return (
     <div className="relative w-full h-full">
       <canvas
@@ -209,7 +217,7 @@ export default function ParkourGame({ canvasId, player1, player2, pressedKeys })
         id={canvasId}
         className="w-full h-full block"
       />
-      {showButtons && (
+      {isGameOver && (
         <div className="absolute inset-0 flex flex-col items-center justify-end pb-8 gap-3 pointer-events-auto z-10">
           <button
             onClick={handleRestart}
