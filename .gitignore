@@ -44,3 +44,8 @@ coverage/
 
 # Personal / project notes
 
+.code-review-graph/
+.mimocode/
+
+
+
