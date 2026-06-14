@@ -23,12 +23,16 @@ export function renderFrame(renderer, players, stage, particleSystem) {
   const shakeY = camera.shakeY || 0
   ctx.translate(-camera.x + shakeX, -camera.y + shakeY)
 
+  const now = performance.now()
+
   drawBackground(ctx, camera, w, h, stage.background.theme)
   drawPlatforms(ctx, stage.platforms, camera, w, h)
   drawMovingPlatforms(ctx, stage.movingPlatforms, camera, w, h, stage._raceTimeMs || 0)
   drawCheckpoints(ctx, stage.checkpoints, camera, w, h)
   drawHazards(ctx, stage.hazards, camera, w, h)
   drawFinishZone(ctx, stage.finishZone, camera, w, h)
+  drawGrabIndicators(ctx, players, camera, w, h, now)
+  drawClimbIndicators(ctx, players, camera, w, h, now)
   drawPlayers(ctx, players, camera, w, h)
 
   if (particleSystem) {
@@ -342,6 +346,67 @@ function drawPlayers(ctx, players, camera, viewW, viewH) {
     }
 
     ctx.globalAlpha = 1.0
+  }
+}
+
+/**
+ * Draw ledge-grab indicators on platform edges the player can grab.
+ * Shows a pulsing highlight on the vertical edge near the top.
+ */
+function drawGrabIndicators(ctx, players, camera, viewW, viewH, now) {
+  for (const player of players) {
+    if (!player || !player.ledgeGrabIndicator) continue
+    const ind = player.ledgeGrabIndicator
+    const indicatorX = ind.edge === 'left' ? ind.x : ind.x + ind.width
+
+    if (!isOnScreen({ x: indicatorX, y: ind.y, width: 4, height: ind.height }, camera, viewW, viewH)) continue
+
+    // Pulsing glow — bright bar on the grabbable edge
+    const pulse = 0.5 + 0.5 * Math.sin(now * 0.006)
+    ctx.fillStyle = '#ffd700'
+    ctx.globalAlpha = 0.6 + 0.4 * pulse
+
+    const edgeX = ind.edge === 'left' ? ind.x - 3 : ind.x + ind.width
+    const barWidth = 3
+    const barHeight = Math.min(28, ind.height)
+    const barY = ind.y
+
+    ctx.fillRect(edgeX, barY, barWidth, barHeight)
+
+    // Bright edge line (inner highlight)
+    ctx.fillStyle = '#fff8c4'
+    ctx.globalAlpha = 0.5 + 0.5 * pulse
+    ctx.fillRect(edgeX, barY, 1, barHeight)
+
+    ctx.globalAlpha = 1
+  }
+}
+
+/**
+ * Draw climb indicators on platform top edges the player can climb onto.
+ * Shows a pulsing highlight along the top surface.
+ */
+function drawClimbIndicators(ctx, players, camera, viewW, viewH, now) {
+  for (const player of players) {
+    if (!player || !player.climbIndicator) continue
+    const ind = player.climbIndicator
+
+    if (!isOnScreen({ x: ind.x, y: ind.y, width: ind.width, height: 6 }, camera, viewW, viewH)) continue
+
+    // Pulsing glow
+    const pulse = 0.5 + 0.5 * Math.sin(now * 0.005 + 1)
+    ctx.globalAlpha = 0.5 + 0.5 * pulse
+
+    // Draw bright line along the top edge
+    ctx.fillStyle = '#00e5ff'
+    ctx.fillRect(ind.x, ind.y - 3, ind.width, 3)
+
+    // Second highlight line
+    ctx.fillStyle = '#80f0ff'
+    ctx.globalAlpha = 0.3 + 0.3 * pulse
+    ctx.fillRect(ind.x, ind.y - 5, ind.width, 2)
+
+    ctx.globalAlpha = 1
   }
 }
 

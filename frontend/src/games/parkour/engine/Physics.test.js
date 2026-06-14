@@ -3,11 +3,14 @@ import { createPlayer } from '../entities/Player.js'
 import {
   updatePlayer,
   COYOTE_TIME_MS,
+  CLIMB_HEIGHT,
   getMovingPlatformState,
   carryOnMovingPlatform,
   createCrumblingState,
   updateCrumblingTimers,
   isPlatformActive,
+  findWallPlatform,
+  canClimbPlatform,
 } from './Physics.js'
 
 const DT = 1000 / 60 // ~16.667ms fixed timestep
@@ -534,11 +537,21 @@ describe('Parkour ledge grab — FB-4', () => {
     // Position player near the left edge of the platform above
     player.x = 110
 
-    // Initiate jump (1 frame of jumpInput), then just let physics carry player upward
+    // Initiate jump (1 frame), then coast upward — capture indicator on the grab frame
+    let grabIndicator = null
     updatePlayer(player, jumpInput(), DT, stage, [platform, ground], [])
     for (let i = 0; i < 14; i++) {
       updatePlayer(player, stillInput(), DT, stage, [platform, ground], [])
+      // Capture indicator on the frame the player becomes grounded (grab happened)
+      if (player.grounded && !grabIndicator) {
+        grabIndicator = player.ledgeGrabIndicator
+      }
     }
+
+    // Ledge grab indicator should have been set (player near left edge)
+    expect(grabIndicator).not.toBeNull()
+    expect(grabIndicator.edge).toBe('left')
+    expect(grabIndicator.platformId).toBe('plat')
 
     // Player should have grabbed the ledge (landed on top instead of bumping head)
     // Platform top is at y=220, player height=40, so player.y should be 180
@@ -565,11 +578,20 @@ describe('Parkour ledge grab — FB-4', () => {
     // center 272 < 280? Yes. center 272 > 252? Yes. ✓
     player.x = 258
 
-    // Initiate jump (1 frame), then coast upward
+    // Initiate jump (1 frame), then coast upward — capture indicator on the grab frame
+    let grabIndicator = null
     updatePlayer(player, jumpInput(), DT, stage, [platform, ground], [])
     for (let i = 0; i < 14; i++) {
       updatePlayer(player, stillInput(), DT, stage, [platform, ground], [])
+      if (player.grounded && !grabIndicator) {
+        grabIndicator = player.ledgeGrabIndicator
+      }
     }
+
+    // Ledge grab indicator should have been set (player near right edge)
+    expect(grabIndicator).not.toBeNull()
+    expect(grabIndicator.edge).toBe('right')
+    expect(grabIndicator.platformId).toBe('plat')
 
     expect(player.grounded).toBe(true)
     expect(player.y).toBe(180) // 220 - 40
@@ -609,6 +631,279 @@ describe('Parkour ledge grab — FB-4', () => {
 
     expect(bumpedHead).toBe(true)
     // Player should NOT have grabbed the ledge
+    expect(player.wallSlide).toBeNull()
+    // Ledge grab indicator should NOT be set (not near edge)
+    expect(player.ledgeGrabIndicator).toBeNull()
+  })
+})
+
+describe('Parkour passThrough teleportation fix', () => {
+  const DT = 1000 / 60
+
+  function stillInput() {
+    return { left: false, right: false, down: false, jumpHeld: false, jumpPressed: false }
+  }
+
+  function jumpInput() {
+    return { left: false, right: false, down: false, jumpHeld: true, jumpPressed: true }
+  }
+
+  function rightInput() {
+    return { left: false, right: true, down: false, jumpHeld: false, jumpPressed: false }
+  }
+
+  function makeStage() {
+    return {
+      fallY: 9999,
+      checkpoints: [],
+      spawnPoints: { p1: { x: 0, y: 0 }, p2: { x: 0, y: 0 } },
+      finishZone: { x: 0, y: 0, width: 0, height: 0 },
+    }
+  }
+
+  it('jumping up through passThrough platform does not teleport sideways', () => {
+    const stage = makeStage()
+    // A wide passThrough ledge
+    const ledge = { id: 'ledge', type: 'solid', passThrough: true, x: 100, y: 300, width: 240, height: 24 }
+    const ground = { id: 'ground', type: 'solid', x: 0, y: 400, width: 400, height: 40 }
+    const player = createPlayer('p1', { x: 180, y: 360 })
+
+    // Land on ground
+    for (let i = 0; i < 60; i++) {
+      updatePlayer(player, stillInput(), DT, stage, [ground], [])
+    }
+    expect(player.grounded).toBe(true)
+
+    // Position player centered under the passThrough ledge (ledge covers 100-340)
+    player.x = 180 // player covers 180-208, well within the ledge horizontal range
+    const xBeforeJump = player.x
+
+    // Jump up — player should pass through the ledge without being pushed sideways
+    updatePlayer(player, jumpInput(), DT, stage, [ledge, ground], [])
+    for (let i = 0; i < 20; i++) {
+      updatePlayer(player, stillInput(), DT, stage, [ledge, ground], [])
+    }
+
+    // Player should still be near the original X position (not pushed to the side)
+    expect(player.x).toBeCloseTo(xBeforeJump, 0)
+    // Player should be ABOVE the ledge (passed through)
+    expect(player.y).toBeLessThan(270) // well above platform top at 300
+  })
+
+  it('jumping up through passThrough platform does not push to side when moving horizontally', () => {
+    const stage = makeStage()
+    const ledge = { id: 'ledge', type: 'solid', passThrough: true, x: 100, y: 300, width: 240, height: 24 }
+    const ground = { id: 'ground', type: 'solid', x: 0, y: 400, width: 400, height: 40 }
+    const player = createPlayer('p1', { x: 150, y: 360 })
+
+    // Land on ground
+    for (let i = 0; i < 60; i++) {
+      updatePlayer(player, stillInput(), DT, stage, [ground], [])
+    }
+
+    // Position player under the ledge, moving right
+    player.x = 150
+
+    // Jump and hold right
+    function rightJumpInput() {
+      return { left: false, right: true, down: false, jumpHeld: true, jumpPressed: true }
+    }
+
+    // Initiate jump and hold right for a few frames, then just hold right
+    updatePlayer(player, rightJumpInput(), DT, stage, [ledge, ground], [])
+    for (let i = 0; i < 10; i++) {
+      const rightHeld = { left: false, right: true, down: false, jumpHeld: false, jumpPressed: false }
+      updatePlayer(player, rightHeld, DT, stage, [ledge, ground], [])
+    }
+
+    // Player should NOT be pushed LEFT of the ledge (x < 100 - 28 = 72)
+    // And should NOT be pushed RIGHT of the ledge (x > 340)
+    // Instead, the player should be moving right while passing through
+    expect(player.x).toBeGreaterThanOrEqual(100 - 28) // not pushed left of ledge
+    expect(player.x + player.width).toBeLessThanOrEqual(340 + 28) // not pushed right of ledge
+
+    // Player should be at or above the ledge (passed through or in mid-pass)
+    // Since we jump from y=360 and the passThrough ledge is at y=300,
+    // the player should have passed through (or be passing through) the ledge
+    expect(player.y).toBeLessThan(310) // player's top is at or above ledge top
+  })
+})
+
+describe('Parkour climb mechanic', () => {
+  const DT = 1000 / 60
+
+  function stillInput() {
+    return { left: false, right: false, down: false, jumpHeld: false, jumpPressed: false }
+  }
+
+  function leftInput() {
+    return { left: true, right: false, down: false, jumpHeld: false, jumpPressed: false }
+  }
+
+  function rightInput() {
+    return { left: false, right: true, down: false, jumpHeld: false, jumpPressed: false }
+  }
+
+  function leftJumpInput() {
+    return { left: true, right: false, down: false, jumpHeld: true, jumpPressed: true }
+  }
+
+  function rightJumpInput() {
+    return { left: false, right: true, down: false, jumpHeld: true, jumpPressed: true }
+  }
+
+  function makeStage() {
+    return {
+      fallY: 9999,
+      checkpoints: [],
+      spawnPoints: { p1: { x: 0, y: 0 }, p2: { x: 0, y: 0 } },
+      finishZone: { x: 0, y: 0, width: 0, height: 0 },
+    }
+  }
+
+  it('findWallPlatform locates platform player is flush against from left', () => {
+    const player = createPlayer('p1', { x: 90, y: 100 })
+    // Player at x=90, width=28 → 90 to 118
+    // Platform at x=50, width=40 → 50 to 90
+    // Player is flush against the right edge of the platform (player.x === platform.x + platform.width)
+    const platforms = [
+      { id: 'wall', type: 'solid', x: 50, y: 0, width: 40, height: 400 },
+    ]
+
+    const result = findWallPlatform(player, platforms, 'left')
+    expect(result).not.toBeNull()
+    expect(result.id).toBe('wall')
+  })
+
+  it('findWallPlatform locates platform player is flush against from right', () => {
+    const player = createPlayer('p1', { x: 100, y: 100 })
+    // Player at x=100, width=28 → 100 to 128
+    // Platform at x=128, width=40 → 128 to 168
+    // Player is flush against the left edge of the platform
+    const platforms = [
+      { id: 'wall', type: 'solid', x: 128, y: 0, width: 40, height: 400 },
+    ]
+
+    const result = findWallPlatform(player, platforms, 'right')
+    expect(result).not.toBeNull()
+    expect(result.id).toBe('wall')
+  })
+
+  it('findWallPlatform returns null when no vertical overlap', () => {
+    const player = createPlayer('p1', { x: 90, y: 500 })
+    // Player at x=90, y=500, width=28, height=40 → covers 90-118 in X, 500-540 in Y
+    // Platform at x=50, y=0, width=40, height=400 → covers 50-90 in X, 0-400 in Y
+    // Player is flush horizontally but NOT overlapping vertically
+    const platforms = [
+      { id: 'wall', type: 'solid', x: 50, y: 0, width: 40, height: 400 },
+    ]
+
+    const result = findWallPlatform(player, platforms, 'left')
+    expect(result).toBeNull()
+  })
+
+  it('canClimbPlatform returns true when platform top is above player head', () => {
+    const player = createPlayer('p1', { x: 90, y: 300 })
+    // Player head at y=300, platform top at y=280 (above player head)
+    // distance = 300 - 280 = 20, which is < CLIMB_HEIGHT (64)
+    const wallPlatform = { id: 'ledge', x: 50, y: 280, width: 40, height: 24 }
+
+    expect(canClimbPlatform(player, wallPlatform)).toBe(true)
+  })
+
+  it('canClimbPlatform returns false when platform top is too far above player head', () => {
+    const player = createPlayer('p1', { x: 90, y: 400 })
+    // Player head at y=400, platform top at y=280
+    // distance = 400 - 280 = 120, which is > CLIMB_HEIGHT (64)
+    const wallPlatform = { id: 'ledge', x: 50, y: 280, width: 40, height: 24 }
+
+    expect(canClimbPlatform(player, wallPlatform)).toBe(false)
+  })
+
+  it('canClimbPlatform returns true when player head is at or above platform top', () => {
+    const player = createPlayer('p1', { x: 90, y: 260 })
+    // Player head at y=260, platform top at y=280 (below player head)
+    // distance = 260 - 280 = -20, which is < CLIMB_HEIGHT (64)
+    const wallPlatform = { id: 'ledge', x: 50, y: 280, width: 40, height: 24 }
+
+    expect(canClimbPlatform(player, wallPlatform)).toBe(true)
+  })
+
+  it('player climbs onto platform instead of wall-jumping when top is within reach', () => {
+    const stage = makeStage()
+    // A wall-like platform whose top is near the player's peak jump height
+    const wall = { id: 'wall', type: 'solid', x: 200, y: 275, width: 40, height: 200 }
+    const ground = { id: 'ground', type: 'solid', x: 0, y: 460, width: 400, height: 40 }
+    const player = createPlayer('p1', { x: 280, y: 300 })
+
+    // Land on ground first (player.y ≈ 460 - 40 = 420, head at 420)
+    for (let i = 0; i < 60; i++) {
+      updatePlayer(player, stillInput(), DT, stage, [wall, ground], [])
+    }
+    expect(player.grounded).toBe(true)
+
+    // Jump up and hold left to move toward the wall
+    const leftJump = { left: true, right: false, down: false, jumpHeld: true, jumpPressed: true }
+    updatePlayer(player, leftJump, DT, stage, [wall, ground], [])
+
+    // Hold left while airborne — player moves left and hits the wall
+    const leftHeld = { left: true, right: false, down: false, jumpHeld: false, jumpPressed: false }
+    for (let i = 0; i < 30; i++) {
+      updatePlayer(player, leftHeld, DT, stage, [wall, ground], [])
+    }
+
+    // Player should now be wall-sliding (pressing left into the wall)
+    expect(player.wallSlide).toBe('left')
+
+    // Wall top is y=275. Player's head should be within CLIMB_HEIGHT of wall top.
+    const distanceToTop = player.y - wall.y
+    expect(distanceToTop).toBeLessThan(CLIMB_HEIGHT)
+
+    // Before the jump, the climbIndicator should be set (wall-sliding near climbable top)
+    expect(player.climbIndicator).not.toBeNull()
+    expect(player.climbIndicator.platformId).toBe('wall')
+    expect(player.climbIndicator.side).toBe('left')
+
+    // Press jump while still holding left — this initiates the climb animation
+    updatePlayer(player, leftJump, DT, stage, [wall, ground], [])
+
+    // Player should now be in climbing state (not yet grounded)
+    expect(player.climbing).toBe(true)
+    expect(player.grounded).toBe(false)
+
+    // Step through the climb animation until complete (160ms at ~16.67ms = ~10 frames)
+    for (let i = 0; i < 15; i++) {
+      if (!player.climbing) break
+      updatePlayer(player, stillInput(), DT, stage, [wall, ground], [])
+    }
+
+    // Player should have finished climbing onto the platform
+    expect(player.climbing).toBe(false)
+    expect(player.grounded).toBe(true)
+    expect(player.y).toBe(wall.y - player.height) // 275 - 40 = 235
+    expect(player.vy).toBe(0)
+    expect(player.wallSlide).toBeNull()
+  })
+
+  it('player wall-jumps instead of climbing when platform top is far above', () => {
+    const stage = makeStage()
+    // A tall wall where the top is far above the player
+    const wall = { id: 'wall', type: 'solid', x: 50, y: 0, width: 40, height: 400 }
+    const player = createPlayer('p1', { x: 92, y: 100 })
+
+    // Fall + press left into wall to initiate wall slide
+    for (let i = 0; i < 15; i++) {
+      updatePlayer(player, leftInput(), DT, stage, [wall], [])
+    }
+    expect(player.wallSlide).toBe('left')
+
+    // player.y is now around the wall area. wall top = y=0, so distance is large
+    // Player should wall-jump, not climb
+    updatePlayer(player, leftJumpInput(), DT, stage, [wall], [])
+
+    // Should wall-jump away from wall
+    expect(player.vy).toBeLessThan(0) // moving upward
+    expect(player.vx).toBeGreaterThan(50) // pushed right (away from left wall)
     expect(player.wallSlide).toBeNull()
   })
 })

@@ -21,11 +21,22 @@ export function createPlayer(playerId, spawnPoint) {
     dropThroughId: null,
     standingOnId: null,
     wallSlide: null,
+    // Climb animation state
+    climbing: false,
+    climbStartY: 0,
+    climbTargetY: 0,
+    climbTimer: 0,
+    climbDuration: 160,
+    climbWallPlatformId: null,
+    // Visual indicators (set by physics, read by renderer)
+    ledgeGrabIndicator: null,  // { platformId, edge: 'left'|'right', x, y, width } or null
+    climbIndicator: null,      // { platformId, x, y, width, side: 'left'|'right' } or null
   }
 }
 
 export function respawnAtCheckpoint(player, checkpoints) {
   player.deaths++
+  player.climbing = false
   if (player.lastCheckpointId) {
     const cp = checkpoints.find((c) => c.id === player.lastCheckpointId)
     if (cp) {
@@ -41,6 +52,7 @@ export function respawnAtCheckpoint(player, checkpoints) {
 }
 
 export function respawnAtSpawn(player, spawnPoint) {
+  player.climbing = false
   player.x = spawnPoint.x
   player.y = spawnPoint.y
   player.vx = 0

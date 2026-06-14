@@ -9,6 +9,7 @@ export const WALL_SLIDE_SPEED = 120 // px/s — reduced fall when wall sliding
 export const WALL_JUMP_VELOCITY_X = 280 // px/s — horizontal push away from wall
 export const WALL_JUMP_VELOCITY_Y = -650 // px/s — upward boost off the wall
 export const LEDGE_GRAB_THRESHOLD = 28 // px — max distance from platform edge for ledge grab
+export const CLIMB_HEIGHT = 80 // px — max distance from player's head to platform top for climbing
 
 import { respawnAtCheckpoint, respawnAtSpawn } from '../entities/Player.js'
 
@@ -37,6 +38,57 @@ export function aabbOverlap(a, b) {
 export function updatePlayer(player, input, dt, stage, platforms, hazards) {
   const events = []
   const dtSec = dt / 1000
+
+  // Clear visual indicators for this frame
+  player.ledgeGrabIndicator = null
+  player.climbIndicator = null
+
+  // --- Climb animation ---
+  // When climbing, lerp the player's Y toward the target with ease-out.
+  // Skip all other physics (gravity, input, collision) during the climb.
+  if (player.climbing) {
+    player.climbTimer += dt
+    const t = Math.min(1, player.climbTimer / player.climbDuration)
+    // Ease out quad — decelerates toward the top for a natural feel
+    const eased = 1 - (1 - t) * (1 - t)
+    player.y = player.climbStartY + (player.climbTargetY - player.climbStartY) * eased
+    player.vy = 0
+
+    if (t >= 1) {
+      player.y = player.climbTargetY
+      player.climbing = false
+      player.grounded = true
+      player.groundedTimer = 0
+      player.standingOnId = player.climbWallPlatformId
+      player.climbWallPlatformId = null
+    }
+
+    // Still check death during climb (unlikely but safe)
+    player.jumpBufferTimer = Math.max(0, player.jumpBufferTimer - dt)
+    player.invulnerabilityTimer = Math.max(0, player.invulnerabilityTimer - dt)
+    if (player.y > stage.fallY) {
+      events.push({ type: 'death', cause: 'fall', checkpointId: player.lastCheckpointId })
+      if (player.lastCheckpointId) {
+        respawnAtCheckpoint(player, stage.checkpoints)
+      } else {
+        respawnAtSpawn(player, stage.spawnPoints[player.id])
+      }
+    }
+    if (player.invulnerabilityTimer <= 0) {
+      for (const hazard of hazards) {
+        if (aabbOverlap(player, hazard)) {
+          events.push({ type: 'death', cause: 'hazard', hazardId: hazard.id })
+          if (player.lastCheckpointId) {
+            respawnAtCheckpoint(player, stage.checkpoints)
+          } else {
+            respawnAtSpawn(player, stage.spawnPoints[player.id])
+          }
+          break
+        }
+      }
+    }
+    return events
+  }
 
   // Update timers
   // groundedTimer only counts time spent airborne (resets to 0 when grounded)
@@ -103,6 +155,56 @@ export function updatePlayer(player, input, dt, stage, platforms, hazards) {
     player.wallSlide = null
   }
 
+  // --- Climb indicator ---
+  // When wall-sliding, check if the player can climb onto the platform.
+  if (player.wallSlide) {
+    const wallPlatform = findWallPlatform(player, platforms, player.wallSlide)
+    if (wallPlatform && canClimbPlatform(player, wallPlatform)) {
+      player.climbIndicator = {
+        platformId: wallPlatform.id,
+        x: wallPlatform.x,
+        y: wallPlatform.y,
+        width: wallPlatform.width,
+        side: player.wallSlide,
+      }
+    }
+  }
+
+  // --- Ledge grab proximity indicator ---
+  // When jumping upward (vy < 0), scan for platforms whose edges the player
+  // is approaching from below. Show a wider-range indicator so the player
+  // sees it before the collision frame.
+  if (player.vy < 0 && !player.ledgeGrabIndicator) {
+    const playerCenterX = player.x + player.width / 2
+    const proxThreshold = LEDGE_GRAB_THRESHOLD * 2
+    for (const platform of platforms) {
+      if (platform.passThrough) continue
+      // Player must be below the platform (head below platform bottom)
+      // and within a reasonable vertical distance
+      if (player.y <= platform.y + platform.height) continue
+      if (player.y > platform.y + platform.height + 120) continue
+
+      const nearLeftEdge =
+        playerCenterX > platform.x &&
+        playerCenterX < platform.x + proxThreshold
+      const nearRightEdge =
+        playerCenterX < platform.x + platform.width &&
+        playerCenterX > platform.x + platform.width - proxThreshold
+
+      if (nearLeftEdge || nearRightEdge) {
+        player.ledgeGrabIndicator = {
+          platformId: platform.id,
+          edge: nearLeftEdge ? 'left' : 'right',
+          x: platform.x,
+          y: platform.y,
+          width: platform.width,
+          height: platform.height,
+        }
+        break
+      }
+    }
+  }
+
   // Move Y
   player.y += player.vy * dtSec
   const groundedBefore = player.grounded
@@ -129,14 +231,31 @@ export function updatePlayer(player, input, dt, stage, platforms, hazards) {
     player.wallSlide = null
   }
 
-  // --- Wall jump ---
+  // --- Wall jump / Climb ---
   // Only if grounded jump didn't fire
   if (player.jumpBufferTimer > 0 && player.wallSlide) {
-    const awayX = player.wallSlide === 'right' ? -WALL_JUMP_VELOCITY_X : WALL_JUMP_VELOCITY_X
-    player.vx = awayX
-    player.vy = WALL_JUMP_VELOCITY_Y
-    player.wallSlide = null
-    player.jumpBufferTimer = 0
+    // Check if we can climb onto the platform instead of wall jumping
+    const wallPlatform = findWallPlatform(player, platforms, player.wallSlide)
+    if (wallPlatform && canClimbPlatform(player, wallPlatform)) {
+      // Platform top is within climbing reach — start smooth climb animation
+      player.climbing = true
+      player.climbStartY = player.y
+      player.climbTargetY = wallPlatform.y - player.height
+      player.climbTimer = 0
+      player.climbWallPlatformId = wallPlatform.id
+      player.wallSlide = null
+      player.jumpBufferTimer = 0
+      player.vx = 0
+      player.vy = 0
+      player.grounded = false
+    } else {
+      // Normal wall jump
+      const awayX = player.wallSlide === 'right' ? -WALL_JUMP_VELOCITY_X : WALL_JUMP_VELOCITY_X
+      player.vx = awayX
+      player.vy = WALL_JUMP_VELOCITY_Y
+      player.wallSlide = null
+      player.jumpBufferTimer = 0
+    }
   }
 
   // --- Fall death ---
@@ -178,6 +297,12 @@ function resolveCollisionAxis(player, platforms) {
 
   for (const platform of platforms) {
     if (!aabbOverlap(player, platform)) continue
+
+    // Skip passThrough platforms when the player is moving upward.
+    // This prevents X-collision from pushing the player sideways when
+    // jumping up through pass-through platforms (ledge penetration issue).
+    // The Y collision pass handles head-bumping correctly.
+    if (platform.passThrough && player.vy < 0) continue
 
     if (player.vx > 0) {
       player.x = platform.x - player.width
@@ -232,6 +357,17 @@ function resolveCollisionAxisY(player, platforms, dtSec) {
           playerCenterX > platformRight - LEDGE_GRAB_THRESHOLD
 
         if (nearLeftEdge || nearRightEdge) {
+          // Only set indicator if not already set (first platform wins)
+          if (!player.ledgeGrabIndicator) {
+            player.ledgeGrabIndicator = {
+              platformId: platform.id,
+              edge: nearLeftEdge ? 'left' : 'right',
+              x: platform.x,
+              y: platform.y,
+              width: platform.width,
+              height: platform.height,
+            }
+          }
           player.y = platform.y - player.height
           player.vy = 0
           player.grounded = true
@@ -379,4 +515,46 @@ export function isPlatformActive(platform, crumblingState) {
  */
 export function filterActivePlatforms(allPlatforms, crumblingState) {
   return allPlatforms.filter((p) => isPlatformActive(p, crumblingState))
+}
+
+/**
+ * Find the platform the player is flush against during wall slide.
+ * Scans platforms to find one whose horizontal edge aligns with the player's
+ * side (within tolerance) and vertically overlaps with the player.
+ * @param {object} player
+ * @param {Array}  platforms
+ * @param {string} wallSlide - 'left' or 'right'
+ * @returns {object|null} the wall platform
+ */
+export function findWallPlatform(player, platforms, wallSlide) {
+  const tolerance = 2 // px
+
+  for (const platform of platforms) {
+    // Check horizontal alignment based on wall slide direction
+    if (wallSlide === 'left') {
+      if (Math.abs(player.x - (platform.x + platform.width)) > tolerance) continue
+    } else if (wallSlide === 'right') {
+      if (Math.abs((player.x + player.width) - platform.x) > tolerance) continue
+    } else {
+      continue
+    }
+
+    // Check vertical overlap (player must be touching the platform's side)
+    if (player.y < platform.y + platform.height && player.y + player.height > platform.y) {
+      return platform
+    }
+  }
+
+  return null
+}
+
+/**
+ * Check if a player can climb onto the wall platform they are sliding against.
+ * The platform top must be within CLIMB_HEIGHT above the player's head.
+ * @param {object} player
+ * @param {object} wallPlatform
+ * @returns {boolean}
+ */
+export function canClimbPlatform(player, wallPlatform) {
+  return (player.y - wallPlatform.y) < CLIMB_HEIGHT
 }
