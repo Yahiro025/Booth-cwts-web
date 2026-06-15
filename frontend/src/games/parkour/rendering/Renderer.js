@@ -388,6 +388,38 @@ function drawPlayers(ctx, players, camera, viewW, viewH) {
       }
     }
 
+    // --- Squash & stretch ---
+    // Anchored at the feet (bottom-center) so the body deforms convincingly:
+    // landings flatten wide, takeoffs stretch tall. Falls through to a subtle
+    // velocity-based stretch while airborne.
+    let scaleX = 1
+    let scaleY = 1
+    if (player.squashType && player.squashTimer > 0 && player.squashDuration > 0) {
+      const eased = (player.squashTimer / player.squashDuration) ** 2
+      if (player.squashType === 'land') {
+        scaleX = 1 + 0.4 * eased
+        scaleY = 1 - 0.4 * eased
+      } else {
+        scaleX = 1 - 0.28 * eased
+        scaleY = 1 + 0.28 * eased
+      }
+    } else if (!player.grounded && !player.grabbing) {
+      const s = Math.max(-1, Math.min(1, (player.vy || 0) / 1200))
+      const mag = 0.12 * Math.abs(s) * (s > 0 ? 1 : 0.6)
+      scaleX = 1 - mag
+      scaleY = 1 + mag
+    }
+
+    const anchorX = player.x + player.width / 2
+    const anchorY = player.y + player.height
+    const squashed = scaleX !== 1 || scaleY !== 1
+    if (squashed) {
+      ctx.save()
+      ctx.translate(anchorX, anchorY)
+      ctx.scale(scaleX, scaleY)
+      ctx.translate(-anchorX, -anchorY)
+    }
+
     ctx.fillStyle = darkColor
     ctx.fillRect(player.x + 2, player.y + 2, player.width, player.height)
 
@@ -473,6 +505,8 @@ function drawPlayers(ctx, players, camera, viewW, viewH) {
       ctx.fillRect(player.x + 7, eyeY + pupilOffsetY, pupilSize, pupilSize)
       ctx.fillRect(player.x + 15, eyeY + pupilOffsetY, pupilSize, pupilSize)
     }
+
+    if (squashed) ctx.restore()
 
     ctx.globalAlpha = 1.0
 

@@ -41,6 +41,11 @@ export function createPlayer(playerId, spawnPoint) {
     grabSide: null, // 'left' | 'right' — which side of the player contacts the platform
     _justGrabbed: false, // flag set during collision when entering grab state
     _grabPlatformHeight: null, // stored platform height for underside-hang arm rendering
+    // Game-feel state (read by renderer / ParkourGame)
+    squashType: null, // 'land' | 'jump' | null — active squash-and-stretch animation
+    squashTimer: 0, // ms remaining on the current squash
+    squashDuration: 0, // ms total of the current squash (for progress)
+    _shakeRequest: 0, // pending camera-shake intensity, consumed by the renderer
   }
 }
 

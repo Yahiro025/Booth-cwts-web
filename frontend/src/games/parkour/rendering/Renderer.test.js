@@ -9,6 +9,7 @@ describe('Renderer', () => {
       save: vi.fn(),
       restore: vi.fn(),
       translate: vi.fn(),
+      scale: vi.fn(),
       fillRect: vi.fn(),
       strokeRect: vi.fn(),
       fillText: vi.fn(),

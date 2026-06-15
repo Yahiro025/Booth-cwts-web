@@ -36,6 +36,73 @@ export function spawnFinishParticles(particleSystem, x, y) {
   }
 }
 
+/**
+ * Dust kicked up when a player lands. Intensity (0..1) scales the burst size
+ * and spread so soft landings barely puff and hard landings throw debris wide.
+ */
+export function spawnLandingDust(particleSystem, x, y, intensity = 0.5) {
+  const colors = ['#cfd8dc', '#b0bec5', '#eceff1']
+  const count = 5 + Math.floor(intensity * 8)
+  for (let i = 0; i < count; i++) {
+    const dir = i < count / 2 ? -1 : 1
+    const speed = (40 + Math.random() * 120) * (0.5 + intensity)
+    const life = 0.25 + Math.random() * 0.25
+    particleSystem.particles.push({
+      x: x + (Math.random() - 0.5) * 16,
+      y,
+      vx: dir * speed * (0.4 + Math.random() * 0.6),
+      vy: -Math.random() * 60 - 20,
+      life,
+      maxLife: life,
+      size: 2 + Math.random() * 3,
+      color: colors[Math.floor(Math.random() * colors.length)],
+    })
+  }
+}
+
+/**
+ * Small puff under the feet on takeoff.
+ */
+export function spawnJumpPuff(particleSystem, x, y) {
+  const colors = ['#dfe6e9', '#b2bec3']
+  for (let i = 0; i < 6; i++) {
+    const life = 0.18 + Math.random() * 0.14
+    particleSystem.particles.push({
+      x: x + (Math.random() - 0.5) * 12,
+      y,
+      vx: (Math.random() - 0.5) * 120,
+      vy: Math.random() * 40 + 10,
+      life,
+      maxLife: life,
+      size: 2 + Math.random() * 2,
+      color: colors[Math.floor(Math.random() * colors.length)],
+    })
+  }
+}
+
+/**
+ * Directional burst when kicking off a wall. `dir` is the push-off direction
+ * ('left' | 'right'); debris sprays that way.
+ */
+export function spawnWallJumpBurst(particleSystem, x, y, dir) {
+  const colors = ['#dfe6e9', '#b2bec3', '#ffffff']
+  const sign = dir === 'right' ? 1 : -1
+  for (let i = 0; i < 8; i++) {
+    const speed = 60 + Math.random() * 140
+    const life = 0.2 + Math.random() * 0.2
+    particleSystem.particles.push({
+      x,
+      y: y + (Math.random() - 0.5) * 20,
+      vx: sign * speed,
+      vy: (Math.random() - 0.5) * 120 - 20,
+      life,
+      maxLife: life,
+      size: 2 + Math.random() * 3,
+      color: colors[Math.floor(Math.random() * colors.length)],
+    })
+  }
+}
+
 export function updateParticles(particleSystem, dt) {
   for (let i = particleSystem.particles.length - 1; i >= 0; i--) {
     const p = particleSystem.particles[i]

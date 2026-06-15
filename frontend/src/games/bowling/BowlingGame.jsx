@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { CHARACTERS } from '../../components/landing_page/CharacterSelect'
+import useGameStore from '../../store/useGameStore'
+import EndCredits from '../../components/EndCredits'
 import useBowlingStore, { FRAMES, PINS } from './useBowlingStore'
 
 const HUD_H = 64
@@ -387,6 +389,8 @@ export default function BowlingGame({ canvasId, player1, player2, pressedKeys })
   const oppChar = CHARACTERS.find((c) => c.id === opp.avatarKey) ?? CHARACTERS[1]
   const myName = me.name || (isP1 ? 'Player 1' : 'Player 2')
   const oppName = opp.name || (isP1 ? 'Player 2' : 'Player 1')
+
+  const setPhase = useGameStore((s) => s.setPhase)
 
   // reactive HUD state
   const winner = useBowlingStore((s) => s.winner)
@@ -794,32 +798,22 @@ export default function BowlingGame({ canvasId, player1, player2, pressedKeys })
         </div>
       )}
 
-      {/* win / lose / tie overlay */}
+      {/* end credits — both players have finished */}
       {winner && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center" style={{ background: 'rgba(14,12,20,0.9)', backdropFilter: 'blur(8px)' }}>
-          {winner === 'tie' ? (
-            <>
-              <span className="material-symbols-outlined" style={{ fontSize: 72, color: '#fff' }}>handshake</span>
-              <div style={{ color: '#fff', fontSize: 34, fontWeight: 800, marginTop: 18, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>IT'S A TIE!</div>
-            </>
-          ) : winner === myKey ? (
-            <>
-              <span className="material-symbols-outlined" style={{ fontSize: 72, color: myChar.color, filter: `drop-shadow(0 0 16px ${myChar.glow})` }}>emoji_events</span>
-              <div style={{ color: myChar.color, fontSize: 40, fontWeight: 800, marginTop: 18, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>YOU WIN!</div>
-            </>
-          ) : (
-            <>
-              <span className="material-symbols-outlined" style={{ fontSize: 72, color: 'rgba(255,255,255,0.3)' }}>sentiment_dissatisfied</span>
-              <div style={{ color: oppChar.color, fontSize: 32, fontWeight: 800, marginTop: 18, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{oppName} Wins!</div>
-            </>
-          )}
-          <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 15, marginTop: 12, fontFamily: "'Space Grotesk', sans-serif" }}>
-            {myState.total} <span style={{ opacity: 0.5 }}>vs</span> {oppTotal}
-          </div>
-          <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11, marginTop: 18, letterSpacing: '0.15em', textTransform: 'uppercase', fontFamily: "'Space Grotesk', sans-serif" }}>
-            Press {isP1 ? 'G' : "'"} to play again
-          </div>
-        </div>
+        <EndCredits
+          title="Bowling"
+          outcome={winner === 'tie' ? 'tie' : winner === myKey ? 'win' : 'lose'}
+          valueLabel="Total"
+          myChar={myChar}
+          myName={myName}
+          myValue={myState.total}
+          oppChar={oppChar}
+          oppName={oppName}
+          oppValue={oppTotal}
+          playAgainKey={isP1 ? 'G' : "'"}
+          onPlayAgain={() => useBowlingStore.getState().restartGame()}
+          onBackToSelect={() => setPhase('CHARACTER_SELECT')}
+        />
       )}
     </div>
   )

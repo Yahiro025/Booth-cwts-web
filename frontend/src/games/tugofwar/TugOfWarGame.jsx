@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { CHARACTERS } from '../../components/landing_page/CharacterSelect'
+import useGameStore from '../../store/useGameStore'
+import EndCredits from '../../components/EndCredits'
 import useTugStore, { MATCH_SECONDS } from './useTugStore'
 
 const HUD_H = 64
@@ -80,6 +82,8 @@ export default function TugOfWarGame({ canvasId, player1, player2, pressedKeys }
   const oppName = opp.name || (isP1 ? 'Player 2' : 'Player 1')
   const p1Name = player1.name || 'Player 1'
   const p2Name = player2.name || 'Player 2'
+
+  const setPhase = useGameStore((s) => s.setPhase)
 
   // reactive HUD state (kept deliberately light — gameplay stats are drawn on canvas)
   const winner = useTugStore((s) => s.winner)
@@ -625,8 +629,10 @@ export default function TugOfWarGame({ canvasId, player1, player2, pressedKeys }
   const low = timeLeft <= 10 && !winner
 
   // win-overlay summary (read once; stable after the winner is set)
+  const oppKey = isP1 ? 'player2' : 'player1'
   const finalRope = useTugStore.getState().rope
   const myStats = useTugStore.getState()[myKey]
+  const oppStats = useTugStore.getState()[oppKey]
   const pullPct = Math.round(Math.abs(finalRope) * 100)
 
   return (
@@ -697,35 +703,23 @@ export default function TugOfWarGame({ canvasId, player1, player2, pressedKeys }
         </div>
       )}
 
-      {/* win / lose / tie overlay */}
+      {/* end credits — match resolved (time up or rope pulled over the line) */}
       {winner && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center" style={{ background: 'rgba(13,11,19,0.9)', backdropFilter: 'blur(8px)' }}>
-          {winner === 'tie' ? (
-            <>
-              <span className="material-symbols-outlined" style={{ fontSize: 72, color: '#fff' }}>handshake</span>
-              <div style={{ color: '#fff', fontSize: 34, fontWeight: 800, marginTop: 16, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>DEAD HEAT!</div>
-            </>
-          ) : winner === myKey ? (
-            <>
-              <span className="material-symbols-outlined" style={{ fontSize: 72, color: myChar.color, filter: `drop-shadow(0 0 16px ${myChar.glow})` }}>emoji_events</span>
-              <div style={{ color: myChar.color, fontSize: 40, fontWeight: 800, marginTop: 16, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>YOU WIN!</div>
-            </>
-          ) : (
-            <>
-              <span className="material-symbols-outlined" style={{ fontSize: 72, color: 'rgba(255,255,255,0.3)' }}>sentiment_dissatisfied</span>
-              <div style={{ color: oppChar.color, fontSize: 32, fontWeight: 800, marginTop: 16, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{oppName} Wins!</div>
-            </>
-          )}
-
-          {winner !== 'tie' && (
-            <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 14, marginTop: 12, fontFamily: "'Space Grotesk', sans-serif" }}>
-              Rope pulled {pullPct}% · your best combo {myStats.best}× · {myStats.perfects} perfects
-            </div>
-          )}
-          <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11, marginTop: 18, letterSpacing: '0.15em', textTransform: 'uppercase', fontFamily: "'Space Grotesk', sans-serif" }}>
-            Press {isP1 ? 'G' : "'"} to play again
-          </div>
-        </div>
+        <EndCredits
+          title="Tug of War"
+          outcome={winner === 'tie' ? 'tie' : winner === myKey ? 'win' : 'lose'}
+          valueLabel="Hits"
+          subtitle={`Rope pulled ${pullPct}% · your best combo ${myStats.best}× · ${myStats.perfects} perfects`}
+          myChar={myChar}
+          myName={myName}
+          myValue={myStats.hits}
+          oppChar={oppChar}
+          oppName={oppName}
+          oppValue={oppStats.hits}
+          playAgainKey={isP1 ? 'G' : "'"}
+          onPlayAgain={() => useTugStore.getState().restart()}
+          onBackToSelect={() => setPhase('CHARACTER_SELECT')}
+        />
       )}
     </div>
   )

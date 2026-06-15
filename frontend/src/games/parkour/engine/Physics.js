@@ -11,6 +11,11 @@ export const WALL_JUMP_VELOCITY_Y = -650 // px/s — upward boost off the wall
 export const LEDGE_GRAB_THRESHOLD = 28 // px — max distance from platform edge for ledge grab
 export const CLIMB_HEIGHT = 80 // px — max distance from player's head to platform top for climbing
 
+// Game-feel (squash & stretch) tuning
+export const LAND_SQUASH_MIN_VY = 350 // px/s — minimum impact speed to trigger a landing squash
+export const SQUASH_DURATION_MS = 180 // ms — landing squash animation length
+export const STRETCH_DURATION_MS = 160 // ms — takeoff stretch animation length
+
 // Grab & Climb constants
 export const GRAB_SHIMMY_SPEED = 150 // px/s — horizontal movement while edge-hanging
 export const GRAB_SLOW_SLIDE_SPEED = 120 // px/s — descent speed in slow-slide hang mode
@@ -23,6 +28,12 @@ export const GRAB_LOW_TIME_WARNING_MS = 1000 // ms — when pulse warning starts
 export const GRAB_RELEASE_VELOCITY = 10 // px/s — small downward velocity on release to prevent re-grab
 
 import { respawnAtCheckpoint, respawnAtSpawn } from '../entities/Player.js'
+
+function triggerSquash(player, type, duration) {
+  player.squashType = type
+  player.squashTimer = duration
+  player.squashDuration = duration
+}
 
 function clearGrabState(player) {
   player.grabbing = false
@@ -247,6 +258,13 @@ export function updatePlayer(
             : WALL_JUMP_VELOCITY_X
         player.vx = awayX
         player.vy = WALL_JUMP_VELOCITY_Y
+        events.push({
+          type: 'walljump',
+          x: player.x + player.width / 2,
+          y: player.y + player.height / 2,
+          dir: awayX > 0 ? 'right' : 'left',
+        })
+        triggerSquash(player, 'jump', STRETCH_DURATION_MS)
         clearGrabState(player)
         player.invulnerabilityTimer = Math.max(
           0,
@@ -409,6 +427,8 @@ export function updatePlayer(
   }
   player.jumpBufferTimer = Math.max(0, player.jumpBufferTimer - dt)
   player.invulnerabilityTimer = Math.max(0, player.invulnerabilityTimer - dt)
+  player.squashTimer = Math.max(0, player.squashTimer - dt)
+  if (player.squashTimer === 0) player.squashType = null
 
   // --- Drop through ---
   if (input.down && player.grounded && player.standingOnId) {
@@ -523,6 +543,7 @@ export function updatePlayer(
   }
 
   // Move Y
+  const impactVy = player.vy // pre-collision falling speed, for landing squash
   player.y += player.vy * dtSec
   const groundedBefore = player.grounded
   player.grounded = false
@@ -532,6 +553,24 @@ export function updatePlayer(
   // If player was grounded this frame, reset the grounded timer
   if (player.grounded && !groundedBefore) {
     player.groundedTimer = 0
+  }
+
+  // --- Landing squash & dust ---
+  // Fired when newly grounded after a meaningful fall. Intensity scales with
+  // impact speed so soft steps don't puff but big drops kick up debris.
+  if (player.grounded && !groundedBefore && impactVy > LAND_SQUASH_MIN_VY) {
+    const intensity = Math.min(
+      1,
+      (impactVy - LAND_SQUASH_MIN_VY) / (MAX_FALL_SPEED - LAND_SQUASH_MIN_VY)
+    )
+    triggerSquash(player, 'land', SQUASH_DURATION_MS)
+    events.push({
+      type: 'land',
+      x: player.x + player.width / 2,
+      y: player.y + player.height,
+      vy: impactVy,
+      intensity,
+    })
   }
 
   // --- Wall slide speed cap ---
@@ -549,6 +588,12 @@ export function updatePlayer(
     player.groundedTimer = COYOTE_TIME_MS + 1
     player.jumpBufferTimer = 0
     player.wallSlide = null
+    triggerSquash(player, 'jump', STRETCH_DURATION_MS)
+    events.push({
+      type: 'jump',
+      x: player.x + player.width / 2,
+      y: player.y + player.height,
+    })
   }
 
   // --- Wall jump / Climb ---
@@ -579,6 +624,13 @@ export function updatePlayer(
       player.vy = WALL_JUMP_VELOCITY_Y
       player.wallSlide = null
       player.jumpBufferTimer = 0
+      triggerSquash(player, 'jump', STRETCH_DURATION_MS)
+      events.push({
+        type: 'walljump',
+        x: player.x + player.width / 2,
+        y: player.y + player.height / 2,
+        dir: awayX > 0 ? 'right' : 'left',
+      })
     }
   }
 

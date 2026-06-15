@@ -1,6 +1,10 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import bgSrc from './assets/background.png'
 import ShootingGameAudio from './utils/audio'
+import { CHARACTERS } from '../../components/landing_page/CharacterSelect'
+import useGameStore from '../../store/useGameStore'
+import EndCredits from '../../components/EndCredits'
+import useShootingStore from './useShootingStore'
 
 // ─── SPRITE LOADING ─────────────────────────────────────────────────
 // Auto-import all PNG sprites from the assets directory.
@@ -296,6 +300,23 @@ export default function ShootingGame({ canvasId, player1, player2, pressedKeys }
   // Determine which side this panel is for based on canvasId
   const isLeftPanel = canvasId === 'canvas-left'
   const playerData = isLeftPanel ? player1 : player2
+  const oppData = isLeftPanel ? player2 : player1
+  const myKey = isLeftPanel ? 'player1' : 'player2'
+  const oppKey = isLeftPanel ? 'player2' : 'player1'
+
+  const setPhase = useGameStore((s) => s.setPhase)
+
+  // Shared match coordination — the end credits roll only once BOTH pilots fall.
+  const matchWinner = useShootingStore((s) => s.winner)
+  const myFinished = useShootingStore((s) => s[myKey].finished)
+  const myFinalScore = useShootingStore((s) => s[myKey].score)
+  const oppFinalScore = useShootingStore((s) => s[oppKey].score)
+
+  // Keep shared state alive while either panel is mounted.
+  useEffect(() => {
+    useShootingStore.getState().mount()
+    return () => useShootingStore.getState().unmount()
+  }, [])
 
   // ── Sync level selection ──
   useEffect(() => {
@@ -461,6 +482,7 @@ export default function ShootingGame({ canvasId, player1, player2, pressedKeys }
         shakeDuration: 0,
         gameOver: false,
         gameOverTimer: 0,
+        finishReported: false,
         combo: 0,
         comboTimer: 0,
       }
@@ -468,6 +490,9 @@ export default function ShootingGame({ canvasId, player1, player2, pressedKeys }
 
     let gs = createGameState()
     gameStateRef.current = gs
+    // Track the shared round counter so a "Play Again" from the end credits
+    // (which bumps the round) rebuilds this panel's local game state.
+    let seenRound = useShootingStore.getState().round
 
     // Fast hex-to-rgba converter for drawing semi-transparent elements without canvas context flushes
     function fillStyleForColor(color, alpha) {
@@ -894,6 +919,12 @@ export default function ShootingGame({ canvasId, player1, player2, pressedKeys }
     // ══════════════════════════════════════════════════════════════════
     function update() {
       if (gs.gameOver) {
+        // Report this pilot's final score exactly once so the shared store can
+        // resolve the match the moment both players have fallen.
+        if (!gs.finishReported) {
+          gs.finishReported = true
+          useShootingStore.getState().reportFinish(myKey, gs.player.score)
+        }
         gs.gameOverTimer++
         // Still update particles/explosions for visual flair
         updateParticles()
@@ -2232,30 +2263,9 @@ export default function ShootingGame({ canvasId, player1, player2, pressedKeys }
           CANVAS_H / 2 + 50
         )
 
-        if (gs.gameOverTimer > 120) {
-          ctx.fillStyle = '#AAAAAA'
-          ctx.font = '12px monospace'
-          const pulse = Math.sin(gs.frame * 0.06) * 0.3 + 0.7
-          ctx.globalAlpha = pulse
-          ctx.fillText(
-            'Press SHOOT to restart',
-            CANVAS_W / 2,
-            CANVAS_H / 2 + 85
-          )
-        }
-
         ctx.restore()
-
-        // Restart
-        if (gs.gameOverTimer > 120 && isKeyPressed('shoot')) {
-          gs = createGameState()
-          gameStateRef.current = gs
-          // 🔊 Restart — play jingle + start music again
-          if (audioRef.current) {
-            audioRef.current.playStartJingle()
-            audioRef.current.startMusic()
-          }
-        }
+        // Replay / "new game" is handled by the React end-credits overlay once
+        // both players have finished — no per-panel restart here.
       }
 
       ctx.restore() // End shake translation
@@ -2320,6 +2330,19 @@ export default function ShootingGame({ canvasId, player1, player2, pressedKeys }
 
     function loop(currentTime) {
       if (!currentTime) currentTime = performance.now()
+
+      // Shared "Play Again" — rebuild local state when the round advances.
+      const storeRound = useShootingStore.getState().round
+      if (storeRound !== seenRound) {
+        seenRound = storeRound
+        gs = createGameState()
+        gameStateRef.current = gs
+        if (audioRef.current) {
+          audioRef.current.playStartJingle()
+          audioRef.current.startMusic()
+        }
+      }
+
       let dt = currentTime - lastTime
       if (dt > 1000) dt = timestep // Cap dt to prevent spiral of death
       lastTime = currentTime
@@ -2342,10 +2365,16 @@ export default function ShootingGame({ canvasId, player1, player2, pressedKeys }
         audioRef.current.stopSiren()
       }
     }
-  }, [canvasId, isLeftPanel, getCharacterStats, playerData, pressedKeys, isPlaying, currentDiff])
+  }, [canvasId, isLeftPanel, myKey, getCharacterStats, playerData, pressedKeys, isPlaying, currentDiff])
 
   const stats = getCharacterStats()
   const charKey = playerData?.avatarKey || 'joy'
+
+  // Character cards for the end-credits roll (color/glow live on CHARACTERS).
+  const myChar = CHARACTERS.find((c) => c.id === playerData?.avatarKey) ?? CHARACTERS[0]
+  const oppChar = CHARACTERS.find((c) => c.id === oppData?.avatarKey) ?? CHARACTERS[1]
+  const myName = playerData?.name || (isLeftPanel ? 'Player 1' : 'Player 2')
+  const oppName = oppData?.name || (isLeftPanel ? 'Player 2' : 'Player 1')
 
   const controlsInfo = isLeftPanel
     ? [
@@ -2680,6 +2709,51 @@ export default function ShootingGame({ canvasId, player1, player2, pressedKeys }
             }
           `}</style>
         </div>
+      )}
+
+      {/* Finished, waiting for the rival to fall before the credits roll */}
+      {isPlaying && myFinished && !matchWinner && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 20,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(10,8,16,0.82)',
+            backdropFilter: 'blur(4px)',
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 56, color: myChar.color }}>
+            hourglass_top
+          </span>
+          <div style={{ color: '#fff', fontSize: 24, fontWeight: 800, marginTop: 14, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+            Final Score: {myFinalScore}
+          </div>
+          <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, marginTop: 8, letterSpacing: '0.15em', textTransform: 'uppercase', fontFamily: "'Space Grotesk', sans-serif" }}>
+            Waiting for {oppName}…
+          </div>
+        </div>
+      )}
+
+      {/* End credits — both pilots have fallen */}
+      {isPlaying && matchWinner && (
+        <EndCredits
+          title="Shooting"
+          outcome={matchWinner === 'tie' ? 'tie' : matchWinner === myKey ? 'win' : 'lose'}
+          valueLabel="Score"
+          myChar={myChar}
+          myName={myName}
+          myValue={myFinalScore}
+          oppChar={oppChar}
+          oppName={oppName}
+          oppValue={oppFinalScore}
+          playAgainKey={null}
+          onPlayAgain={() => useShootingStore.getState().restart()}
+          onBackToSelect={() => setPhase('CHARACTER_SELECT')}
+        />
       )}
     </div>
   )

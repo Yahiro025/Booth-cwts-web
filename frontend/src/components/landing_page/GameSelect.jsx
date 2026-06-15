@@ -5,7 +5,7 @@ import AnimatedBackground from './AnimatedBackground'
 const GAMES = [
   { id: 'parkour', name: 'Parkour', icon: 'directions_run', color: '#27AE60' },
   { id: 'shooting', name: 'Shooting', icon: 'my_location', color: '#E03B1F' },
-  { id: 'maze', name: 'Maze', icon: 'grid_view', color: '#6366f1' },
+  { id: 'tugofwar', name: 'Tug of War', icon: 'sports_kabaddi', color: '#6366f1' },
   { id: 'bowling', name: 'Bowling', icon: 'adjust', color: '#D2691E' },
 ]
 
