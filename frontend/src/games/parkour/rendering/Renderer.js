@@ -419,6 +419,25 @@ function drawPlayers(ctx, players, camera, viewW, viewH) {
           ctx.fillRect(player.x - armW, player.y + 12, armW, armH)
           ctx.fillRect(player.x - armW, player.y + 22, armW, armH)
         }
+      } else if (player.grabType === 'underside-hang' && player._grabPlatformHeight != null) {
+        // Arms extend upward from shoulders through the platform, with hand hooks at top
+        const armH = player._grabPlatformHeight + 8
+        const armW = 4
+        const handW = 6
+        const handH = 2
+        const armTopY = player.y - player._grabPlatformHeight - 6
+
+        ctx.fillStyle = effectiveBodyColor
+
+        // Left arm
+        ctx.fillRect(player.x + 4, armTopY, armW, armH)
+        // Right arm
+        ctx.fillRect(player.x + player.width - 8, armTopY, armW, armH)
+
+        // Left hand hook
+        ctx.fillRect(player.x + 3, armTopY, handW, handH)
+        // Right hand hook
+        ctx.fillRect(player.x + player.width - 9, armTopY, handW, handH)
       }
     }
 
@@ -435,8 +454,8 @@ function drawPlayers(ctx, players, camera, viewW, viewH) {
 
     ctx.fillStyle = '#2c3e50'
     const pupilSize = 2
-    // During edge-hang, pupils shift upward (looking toward climb target)
-    const pupilOffsetY = player.grabType === 'edge-hang' ? -1 : 1
+    // During edge-hang or underside-hang, pupils shift upward (looking toward climb target)
+    const pupilOffsetY = player.grabType === 'edge-hang' || player.grabType === 'underside-hang' ? -1 : 1
     if (player.facingRight) {
       ctx.fillRect(
         player.x + player.width - 9,
@@ -457,12 +476,15 @@ function drawPlayers(ctx, players, camera, viewW, viewH) {
 
     ctx.globalAlpha = 1.0
 
-    // --- Timer indicator bar above head ---
+    // --- Timer indicator bar ---
     if (player.grabbing && player.grabHangDuration > 0) {
       const barW = 20
       const barH = 4
       const barX = player.x + player.width / 2 - barW / 2
-      const barY = player.y - 14
+      const isUndersideHang = player.grabType === 'underside-hang'
+      const barY = isUndersideHang
+        ? player.y + player.height + 6   // below feet (underside-hang)
+        : player.y - 14                   // above head (edge-hang, wall-cling)
 
       const remaining = Math.max(
         0,

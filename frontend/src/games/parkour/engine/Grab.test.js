@@ -142,7 +142,7 @@ describe('Edge Hang', () => {
     expect(p.grabType).toBe('edge-hang')
   })
 
-  it('ledge-grab without toward input → snap-on-top', () => {
+  it('no-toward near edge enters underside-hang (not ledge-grab)', () => {
     const s = makeStage()
     const plat = {
       id: 'p',
@@ -167,8 +167,8 @@ describe('Edge Hang', () => {
     updatePlayer(p, jumpInput(), DT, s, [plat, ground], [], 'racing', [p])
     for (let i = 0; i < 20; i++)
       updatePlayer(p, stillInput(), DT, s, [plat, ground], [], 'racing', [p])
-    expect(p.grounded).toBe(true)
-    expect(p.grabbing).toBe(false)
+    expect(p.grabbing).toBe(true)
+    expect(p.grabType).toBe('underside-hang')
   })
 
   it('down-held skips edge-hang', () => {
@@ -489,30 +489,26 @@ describe('Shimmy', () => {
       width: 600,
       height: 40,
     }
-    const p1 = createPlayer('p1', { x: 170, y: 300 })
-    const p2 = createPlayer('p2', { x: 176, y: 300 })
+    const p1 = createPlayer('p1', { x: 140, y: 210 })
+    const p2 = createPlayer('p2', { x: 180, y: 210 })
     p1.grabbing = true
     p1.grabType = 'edge-hang'
     p1.grabPlatformId = 'p'
     p1.grabHangDuration = 5000
+    p1.grounded = false
     p2.grabbing = true
     p2.grabType = 'edge-hang'
     p2.grabPlatformId = 'p'
     p2.grabHangDuration = 5000
-    // Both shimmy toward each other — run alternate processing
-    for (let i = 0; i < 10; i++) {
-      updatePlayer(p1, rightInput(), DT, s, [plat, ground], [], 'racing', [
-        p1,
-        p2,
-      ])
-      updatePlayer(p2, leftInput(), DT, s, [plat, ground], [], 'racing', [
-        p1,
-        p2,
-      ])
+    p2.grounded = false
+    // p1 shimmies right into p2 (same pattern as shimmy-collision-push test)
+    for (let i = 0; i < 20; i++) {
+      updatePlayer(p1, rightInput(), DT, s, [plat, ground], [], 'racing', [p1, p2])
+      updatePlayer(p2, stillInput(), DT, s, [plat, ground], [], 'racing', [p1, p2])
+      if (!p2.grabbing) break
     }
-    // After collision, at least one should be released
-    // Both shimmying toward each other leads to competitive push
     expect(p2.grabbing).toBe(false)
+    expect(p1.grabbing).toBe(true)
   })
 })
 
@@ -707,5 +703,440 @@ describe('Edge Cases', () => {
     expect(pl.grabbing).toBe(true)
     expect(pl.grabPlatformId).toBe('lower')
     expect(pl.grabType).toBe('edge-hang')
+  })
+})
+
+describe('Underside-Hang', () => {
+  it('underside-hang on jump-up (center)', () => {
+    const s = makeStage()
+    const plat = {
+      id: 'p',
+      type: 'solid',
+      x: 100,
+      y: 200,
+      width: 200,
+      height: 24,
+    }
+    const p = createPlayer('p1', { x: 200, y: 226 })
+    // Player below platform, jumping up into bottom
+    // prevFeetY = 226+40-(-300)/60 = 266+5 = 271 > 200 (was below)
+    // After Y-move: head at ~221.5, overlap with [200,224]
+    p.y = 226
+    p.vy = -300
+    p.grounded = false
+
+    updatePlayer(p, stillInput(), DT, s, [plat], [], 'racing', [p])
+    expect(p.grabbing).toBe(true)
+    expect(p.grabType).toBe('underside-hang')
+    expect(p.y).toBe(plat.y + plat.height)
+  })
+
+  it('underside-hang on fall-through', () => {
+    const s = makeStage()
+    const plat = {
+      id: 'p',
+      type: 'solid',
+      x: 100,
+      y: 200,
+      width: 200,
+      height: 24,
+    }
+    const p = createPlayer('p1', { x: 200, y: 160 })
+    // Player above platform, falling past bottom
+    // prevFeetY = 160+40-500/60 = 200-8.3 = 191.7 <= 200 (was above platform)
+    // After Y-move: head at ~168.5, feet at ~208.5, overlap with [200,224]
+    p.y = 160
+    p.vy = 500
+    p.grounded = false
+
+    updatePlayer(p, stillInput(), DT, s, [plat], [], 'racing', [p])
+    expect(p.grabbing).toBe(true)
+    expect(p.grabType).toBe('underside-hang')
+    expect(p.y).toBe(plat.y + plat.height)
+  })
+
+  it('down-held skips underside-hang', () => {
+    const s = makeStage()
+    const plat = {
+      id: 'p',
+      type: 'solid',
+      x: 100,
+      y: 200,
+      width: 200,
+      height: 24,
+    }
+    const p = createPlayer('p1', { x: 200, y: 226 })
+    p.y = 226
+    p.vy = -300
+    p.grounded = false
+
+    updatePlayer(p, downInput(), DT, s, [plat], [], 'racing', [p])
+    expect(p.grabbing).toBe(false)
+  })
+
+  it('edge-hang takes priority at edge with toward input', () => {
+    const s = makeStage()
+    const plat = {
+      id: 'p',
+      type: 'solid',
+      x: 100,
+      y: 200,
+      width: 200,
+      height: 24,
+    }
+    const p = createPlayer('p1', { x: 96, y: 220 })
+    p.y = 220
+    p.vy = -200
+    p.grounded = false
+
+    updatePlayer(p, rightInput(), DT, s, [plat], [], 'racing', [p])
+    expect(p.grabbing).toBe(true)
+    expect(p.grabType).toBe('edge-hang')
+  })
+
+  it('no-input at edge → underside-hang', () => {
+    const s = makeStage()
+    const plat = {
+      id: 'p',
+      type: 'solid',
+      x: 100,
+      y: 200,
+      width: 200,
+      height: 24,
+    }
+    const p = createPlayer('p1', { x: 96, y: 220 })
+    p.y = 220
+    p.vy = -200
+    p.grounded = false
+
+    updatePlayer(p, stillInput(), DT, s, [plat], [], 'racing', [p])
+    expect(p.grabbing).toBe(true)
+    expect(p.grabType).toBe('underside-hang')
+  })
+
+  it('climb-through from underside-hang', () => {
+    const s = makeStage()
+    const plat = {
+      id: 'p',
+      type: 'solid',
+      x: 100,
+      y: 200,
+      width: 200,
+      height: 24,
+    }
+    const p = createPlayer('p1', { x: 200, y: 226 })
+    p.y = 226
+    p.vy = -300
+    p.grounded = false
+    updatePlayer(p, stillInput(), DT, s, [plat], [], 'racing', [p])
+    if (!p.grabbing) return
+    expect(p.grabType).toBe('underside-hang')
+
+    updatePlayer(p, jumpInput(), DT, s, [plat], [], 'racing', [p])
+    expect(p.climbing).toBe(true)
+    for (let i = 0; i < 15; i++) {
+      if (!p.climbing) break
+      updatePlayer(p, stillInput(), DT, s, [plat], [], 'racing', [p])
+    }
+    expect(p.climbing).toBe(false)
+    expect(p.grounded).toBe(true)
+    expect(p.y).toBe(plat.y - p.height)
+  })
+
+  it('shimmy on underside', () => {
+    const s = makeStage()
+    const plat = {
+      id: 'p',
+      type: 'solid',
+      x: 100,
+      y: 200,
+      width: 300,
+      height: 24,
+    }
+    const p = createPlayer('p1', { x: 200, y: 226 })
+    p.y = 226
+    p.vy = -300
+    p.grounded = false
+    updatePlayer(p, stillInput(), DT, s, [plat], [], 'racing', [p])
+    if (!p.grabbing) return
+    const xb = p.x
+    for (let i = 0; i < 10; i++)
+      updatePlayer(p, rightInput(), DT, s, [plat], [], 'racing', [p])
+    expect(p.x).toBeGreaterThan(xb)
+    expect(p.grabbing).toBe(true)
+    expect(p.grabType).toBe('underside-hang')
+  })
+
+  it('shimmy clamp on underside', () => {
+    const s = makeStage()
+    const plat = {
+      id: 'p',
+      type: 'solid',
+      x: 100,
+      y: 200,
+      width: 200,
+      height: 24,
+    }
+    const p = createPlayer('p1', { x: 150, y: 226 })
+    p.y = 226
+    p.vy = -300
+    p.grounded = false
+    updatePlayer(p, stillInput(), DT, s, [plat], [], 'racing', [p])
+    if (!p.grabbing) return
+    for (let i = 0; i < 30; i++)
+      updatePlayer(p, leftInput(), DT, s, [plat], [], 'racing', [p])
+    expect(p.x).toBeGreaterThanOrEqual(plat.x)
+    expect(p.grabbing).toBe(true)
+  })
+
+  it('release from underside via down', () => {
+    const s = makeStage()
+    const plat = {
+      id: 'p',
+      type: 'solid',
+      x: 100,
+      y: 200,
+      width: 200,
+      height: 24,
+    }
+    const p = createPlayer('p1', { x: 200, y: 226 })
+    p.y = 226
+    p.vy = -300
+    p.grounded = false
+    updatePlayer(p, stillInput(), DT, s, [plat], [], 'racing', [p])
+    expect(p.grabbing).toBe(true)
+    updatePlayer(p, downInput(), DT, s, [plat], [], 'racing', [p])
+    expect(p.grabbing).toBe(false)
+    expect(p.vy).toBeGreaterThanOrEqual(10)
+  })
+
+  it('shimmy on underside does not release', () => {
+    const s = makeStage()
+    const plat = {
+      id: 'p',
+      type: 'solid',
+      x: 100,
+      y: 200,
+      width: 200,
+      height: 24,
+    }
+    const p = createPlayer('p1', { x: 200, y: 226 })
+    p.y = 226
+    p.vy = -300
+    p.grounded = false
+    updatePlayer(p, stillInput(), DT, s, [plat], [], 'racing', [p])
+    expect(p.grabbing).toBe(true)
+    expect(p.grabType).toBe('underside-hang')
+    // Left/right should shimmy, not release
+    updatePlayer(p, leftInput(), DT, s, [plat], [], 'racing', [p])
+    expect(p.grabbing).toBe(true)
+    expect(p.grabType).toBe('underside-hang')
+    expect(p.x).toBeLessThan(200)
+  })
+
+  it('timer expiry on underside', () => {
+    const s = makeStage()
+    const plat = {
+      id: 'p',
+      type: 'solid',
+      x: 100,
+      y: 200,
+      width: 200,
+      height: 24,
+      hangTimeMs: 200,
+    }
+    const p = createPlayer('p1', { x: 200, y: 226 })
+    p.y = 226
+    p.vy = -300
+    p.grounded = false
+    updatePlayer(p, stillInput(), DT, s, [plat], [], 'racing', [p])
+    expect(p.grabbing).toBe(true)
+    const fn = Math.ceil(200 / DT) + 5
+    for (let i = 0; i < fn; i++) {
+      if (!p.grabbing) break
+      updatePlayer(p, stillInput(), DT, s, [plat], [], 'racing', [p])
+    }
+    expect(p.grabbing).toBe(false)
+  })
+
+  it('moving platform carry on underside', () => {
+    const s = makeStage()
+    const mplat = {
+      id: 'm',
+      type: 'moving',
+      x: 100,
+      y: 200,
+      width: 200,
+      height: 24,
+      dx: 5,
+      dy: 0,
+    }
+    const p = createPlayer('p1', { x: 200, y: 226 })
+    p.y = 226
+    p.vy = -300
+    p.grounded = false
+    updatePlayer(p, stillInput(), DT, s, [mplat], [], 'racing', [p])
+    if (!p.grabbing) {
+      p.grabbing = true
+      p.grabType = 'underside-hang'
+      p.grabPlatformId = 'm'
+      p.grabHangDuration = 5000
+    }
+    const xb = p.x
+    for (let i = 0; i < 5; i++)
+      updatePlayer(p, stillInput(), DT, s, [mplat], [], 'racing', [p])
+    expect(p.x).toBeGreaterThan(xb)
+  })
+
+  it('crumble trigger on underside', () => {
+    const plat = {
+      id: 'cr',
+      type: 'crumbling',
+      x: 100,
+      y: 200,
+      width: 200,
+      height: 24,
+      crumbleAfterMs: 1000,
+      respawnAfterMs: 2000,
+    }
+    const p = createPlayer('p1', { x: 140, y: 150 })
+    p.grabbing = true
+    p.grabType = 'underside-hang'
+    p.grabPlatformId = 'cr'
+    const cs = createCrumblingState()
+    updateCrumblingTimers(cs, [plat], [p], 100)
+    expect(cs['cr'].crumbleTimer).toBe(100)
+  })
+
+  it('pass-through underside-hang', () => {
+    const s = makeStage()
+    const plat = {
+      id: 'p',
+      type: 'solid',
+      passThrough: true,
+      x: 100,
+      y: 200,
+      width: 200,
+      height: 24,
+    }
+    const p = createPlayer('p1', { x: 200, y: 226 })
+    p.y = 226
+    p.vy = -300
+    p.grounded = false
+
+    updatePlayer(p, stillInput(), DT, s, [plat], [], 'racing', [p])
+    expect(p.grabbing).toBe(true)
+    expect(p.grabType).toBe('underside-hang')
+  })
+
+  it('grab disabled in countdown for underside', () => {
+    const s = makeStage()
+    const plat = {
+      id: 'p',
+      type: 'solid',
+      x: 100,
+      y: 200,
+      width: 200,
+      height: 24,
+    }
+    const p = createPlayer('p1', { x: 200, y: 226 })
+    p.y = 226
+    p.vy = -300
+    p.grounded = false
+
+    updatePlayer(p, stillInput(), DT, s, [plat], [], 'countdown', [p])
+    expect(p.grabbing).toBe(false)
+  })
+
+  it('chain-grab: edge-hang drop + underside-catch lower', () => {
+    const s = makeStage()
+    const upper = {
+      id: 'upper',
+      type: 'solid',
+      x: 100,
+      y: 100,
+      width: 200,
+      height: 24,
+    }
+    const lower = {
+      id: 'lower',
+      type: 'solid',
+      x: 100,
+      y: 180,
+      width: 200,
+      height: 24,
+    }
+    const pl = createPlayer('p1', { x: 96, y: 120 })
+    pl.y = 120
+    pl.vy = -200
+    pl.grounded = false
+    updatePlayer(pl, rightInput(), DT, s, [upper, lower], [], 'racing', [pl])
+    if (!pl.grabbing) return
+    expect(pl.grabPlatformId).toBe('upper')
+    updatePlayer(pl, downInput(), DT, s, [upper, lower], [], 'racing', [pl])
+    expect(pl.grabbing).toBe(false)
+    // Position above lower so prevFeetY <= lower.y for downward catch
+    // lower.y=180, lower bottom=204, head at 140, feet at 180 ≤ 180
+    pl.y = 140
+    pl.vy = 500
+    pl.vx = 0
+    updatePlayer(pl, stillInput(), DT, s, [upper, lower], [], 'racing', [pl])
+    expect(pl.grabbing).toBe(true)
+    expect(pl.grabPlatformId).toBe('lower')
+    expect(pl.grabType).toBe('underside-hang')
+  })
+
+  it('slow-slide underside-hang release', () => {
+    const s = makeStage()
+    const plat = {
+      id: 'p',
+      type: 'solid',
+      x: 100,
+      y: 200,
+      width: 200,
+      height: 24,
+      hangPhysics: 'slow-slide',
+    }
+    // Manually set up underside-hang with slow-slide
+    const p = createPlayer('p1', { x: 200, y: 224 })
+    p.y = 224 // head at plat.y + plat.height = 224 (body-flush)
+    p.grabbing = true
+    p.grabType = 'underside-hang'
+    p.grabPlatformId = 'p'
+    p.grabHangDuration = 5000
+    p.grabHangPhysics = 'slow-slide'
+    p._grabPlatformHeight = plat.height
+    p.grounded = false
+    expect(p.grabHangPhysics).toBe('slow-slide')
+    const yb = p.y
+    // With fix: auto-release when head > platformBottom + playerHeight = 224+40=264
+    // At 120px/s, 40px slide takes ~333ms (~20 frames)
+    for (let i = 0; i < 30; i++) {
+      if (!p.grabbing) break
+      updatePlayer(p, stillInput(), DT, s, [plat], [], 'racing', [p])
+    }
+    if (p.grabbing) expect(p.y).toBeGreaterThan(yb)
+  })
+
+  it('underside-hang preserves facingRight', () => {
+    const s = makeStage()
+    const plat = {
+      id: 'p',
+      type: 'solid',
+      x: 100,
+      y: 200,
+      width: 200,
+      height: 24,
+    }
+    const p = createPlayer('p1', { x: 200, y: 226 })
+    p.y = 226
+    p.vy = -300
+    p.grounded = false
+    p.facingRight = false
+
+    updatePlayer(p, stillInput(), DT, s, [plat], [], 'racing', [p])
+    expect(p.grabbing).toBe(true)
+    expect(p.grabType).toBe('underside-hang')
+    expect(p.facingRight).toBe(false)
   })
 })

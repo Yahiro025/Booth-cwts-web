@@ -33,6 +33,7 @@ function clearGrabState(player) {
   player.grabHangPhysics = 'motionless'
   player.grabSide = null
   player._justGrabbed = false
+  player._grabPlatformHeight = null
 }
 
 function isPlatformGrabbable(platform) {
@@ -214,7 +215,8 @@ export function updatePlayer(
     // 3. Determine away direction
     const awayFromWall =
       (player.grabSide === 'left' && input.right) ||
-      (player.grabSide === 'right' && input.left)
+      (player.grabSide === 'right' && input.left) ||
+      (player.grabType === 'underside-hang' && (input.left || input.right))
 
     // 4. Climb-up or Wall-jump (if jump buffer available) — highest priority with jump
     if (player.jumpBufferTimer > 0) {
@@ -263,7 +265,12 @@ export function updatePlayer(
     }
 
     // 5. Release (down or away) — only if jump buffer didn't fire
-    if (input.down || awayFromWall) {
+    // Underside-hang: left/right is for shimmy, not away-release.
+    const wantsRelease = input.down || awayFromWall
+    const shouldRelease =
+      wantsRelease &&
+      !(player.grabType === 'underside-hang' && awayFromWall && !input.down)
+    if (shouldRelease) {
       const releaseSide = player.grabSide
       clearGrabState(player)
       player.vy = GRAB_RELEASE_VELOCITY
@@ -278,8 +285,8 @@ export function updatePlayer(
       return events
     }
 
-    // 6. Shimmy (edge-hang only)
-    if (player.grabType === 'edge-hang') {
+    // 6. Shimmy (edge-hang and underside-hang)
+    if (player.grabType === 'edge-hang' || player.grabType === 'underside-hang') {
       let shimmyVx = 0
       if (input.left) shimmyVx = -GRAB_SHIMMY_SPEED
       else if (input.right) shimmyVx = GRAB_SHIMMY_SPEED
@@ -299,7 +306,7 @@ export function updatePlayer(
           if (other === player) continue
           if (
             other.grabbing &&
-            other.grabType === 'edge-hang' &&
+            (other.grabType === 'edge-hang' || other.grabType === 'underside-hang') &&
             other.grabPlatformId === player.grabPlatformId &&
             aabbOverlap(player, other)
           ) {
@@ -325,8 +332,9 @@ export function updatePlayer(
       )
       if (
         slowSlidePlatform &&
-        player.y + player.height >
-          slowSlidePlatform.y + slowSlidePlatform.height
+        player.y >
+          slowSlidePlatform.y + slowSlidePlatform.height +
+            (player.grabType === 'underside-hang' ? player.height : 0)
       ) {
         clearGrabState(player)
         player.vy = GRAB_RELEASE_VELOCITY
@@ -758,6 +766,49 @@ function resolveCollisionAxisY(player, platforms, dtSec, input, phase) {
         }
       }
 
+      // --- Underside-hang downward catch ---
+      // Player falling past the platform bottom (any position along width).
+      if (
+        phase === 'racing' &&
+        !player.grounded &&
+        !player.grabbing &&
+        !input.down &&
+        isPlatformGrabbable(platform)
+      ) {
+        const prevFeetY = player.y + player.height - player.vy * dtSec
+        if (prevFeetY <= platform.y) {
+          const playerCenterX = player.x + player.width / 2
+          const { nearLeftEdge, nearRightEdge } = isNearPlatformEdge(
+            playerCenterX,
+            platform,
+            GRAB_EDGE_DETECT_THRESHOLD
+          )
+          // Edge-hang takes priority if near edge AND pressing toward platform center
+          if (
+            !((nearLeftEdge || nearRightEdge) &&
+              isPressingTowardPlatform(player, platform, input))
+          ) {
+            // Underside-hang catch
+            player.y = platform.y + platform.height
+            player.vy = 0
+            player.grabbing = true
+            player._justGrabbed = true
+            player.grabType = 'underside-hang'
+            player.grabPlatformId = platform.id
+            player.grabSide = null
+            player.grabHangTimer = 0
+            player.grabHangDuration =
+              platform.hangTimeMs ??
+              (isCrumblingPlatform(platform)
+                ? GRAB_CRUMBLING_HANG_TIME_MS
+                : GRAB_DEFAULT_HANG_TIME_MS)
+            player.grabHangPhysics = platform.hangPhysics ?? 'motionless'
+            player._grabPlatformHeight = platform.height
+            continue
+          }
+        }
+      }
+
       if (platform.passThrough) {
         const prevFeetY = player.y + player.height - player.vy * dtSec
         if (prevFeetY <= platform.y) {
@@ -813,6 +864,51 @@ function resolveCollisionAxisY(player, platforms, dtSec, input, phase) {
                 ? GRAB_CRUMBLING_HANG_TIME_MS
                 : GRAB_DEFAULT_HANG_TIME_MS)
             player.grabHangPhysics = platform.hangPhysics ?? 'motionless'
+            continue
+          }
+        }
+      }
+
+      // --- Underside-hang upward detection ---
+      // Player jumping up into the platform bottom (any position along width).
+      // No groundedTimer guard needed — walk-off can't trigger this (player
+      // walking off is on top of platform, not below it).
+      if (
+        phase === 'racing' &&
+        !player.grounded &&
+        !player.grabbing &&
+        !input.down &&
+        isPlatformGrabbable(platform)
+      ) {
+        const prevFeetY = player.y + player.height - player.vy * dtSec
+        if (prevFeetY > platform.y) {
+          const playerCenterX = player.x + player.width / 2
+          const { nearLeftEdge, nearRightEdge } = isNearPlatformEdge(
+            playerCenterX,
+            platform,
+            GRAB_EDGE_DETECT_THRESHOLD
+          )
+          // Edge-hang takes priority if near edge AND pressing toward platform center
+          if (
+            !((nearLeftEdge || nearRightEdge) &&
+              isPressingTowardPlatform(player, platform, input))
+          ) {
+            // Underside-hang
+            player.y = platform.y + platform.height
+            player.vy = 0
+            player.grabbing = true
+            player._justGrabbed = true
+            player.grabType = 'underside-hang'
+            player.grabPlatformId = platform.id
+            player.grabSide = null
+            player.grabHangTimer = 0
+            player.grabHangDuration =
+              platform.hangTimeMs ??
+              (isCrumblingPlatform(platform)
+                ? GRAB_CRUMBLING_HANG_TIME_MS
+                : GRAB_DEFAULT_HANG_TIME_MS)
+            player.grabHangPhysics = platform.hangPhysics ?? 'motionless'
+            player._grabPlatformHeight = platform.height
             continue
           }
         }

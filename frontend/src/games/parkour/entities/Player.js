@@ -40,6 +40,7 @@ export function createPlayer(playerId, spawnPoint) {
     grabHangPhysics: 'motionless', // 'motionless' | 'slow-slide'
     grabSide: null, // 'left' | 'right' — which side of the player contacts the platform
     _justGrabbed: false, // flag set during collision when entering grab state
+    _grabPlatformHeight: null, // stored platform height for underside-hang arm rendering
   }
 }
 
@@ -81,4 +82,5 @@ function clearGrabState(player) {
   player.grabHangDuration = 5000
   player.grabHangPhysics = 'motionless'
   player.grabSide = null
+  player._grabPlatformHeight = null
 }
