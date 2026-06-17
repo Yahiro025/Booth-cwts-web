@@ -17,6 +17,14 @@ import fearIcon from '../../assets/fear/fearIcon.png'
 import anxietyNeutral from '../../assets/anxiety/AnxietyNeutral.png'
 import fearNeutral from '../../assets/fear/fearNeutral.png'
 import anxietyIcon from '../../assets/anxiety/AnxietyIcon.png'
+import sadnessNeutral from '../../assets/sadness/sadnessNuetral.png'
+import joyNeutral from '../../assets/joy/joyNuetral.png'
+import joyIcon from '../../assets/joy/joyIcon.png'
+import sadnessIcon from '../../assets/sadness/sadnessIcon.png'
+import disgustNeutral from '../../assets/disgust/disgustNuetral.png'
+import envyNeutral from '../../assets/envy/envyNuetral.png'
+import disgustIcon from '../../assets/disgust/disgustIcon.png'
+import envyIcon from '../../assets/envy/envyIcon.png'
 
 export const CHARACTER_PORTRAITS = {
   anger: angerNeutral,
@@ -24,6 +32,10 @@ export const CHARACTER_PORTRAITS = {
   embarrassment: embarrassmentIcon,
   fear: fearNeutral,
   anxiety: anxietyNeutral,
+  sadness: sadnessNeutral,
+  joy: joyNeutral,
+  disgust: disgustNeutral,
+  envy: envyNeutral,
 }
 
 export const CHARACTER_ICONS = {
@@ -32,6 +44,10 @@ export const CHARACTER_ICONS = {
   embarrassment: embarrassmentIcon,
   fear: fearIcon,
   anxiety: anxietyIcon,
+  sadness: sadnessIcon,
+  joy: joyIcon,
+  disgust: disgustIcon,
+  envy: envyIcon,
 }
 
 export function getCharacterPortrait(charId) {

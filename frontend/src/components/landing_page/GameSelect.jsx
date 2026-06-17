@@ -32,7 +32,7 @@ export default function GameSelect() {
 
       {/* Top Left: Player 1 */}
       <div className="absolute top-8 left-8 flex items-center gap-4 animate-bounce-in-left" style={{ animationDelay: '0.1s' }}>
-        <PlayerAvatar char={p1Char} flip={p1Char.id === 'ennui'} size={96} />
+        <PlayerAvatar char={p1Char} flip={['ennui', 'joy'].includes(p1Char.id)} size={96} />
         <div>
           <p className="text-[10px] tracking-[0.3em] uppercase text-gray-500" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Player 1</p>
           <h2 className="text-3xl font-extrabold text-gray-800" style={{ textShadow: `0 0 20px ${p1Char.glow}` }}>
@@ -49,7 +49,7 @@ export default function GameSelect() {
             <span style={{ color: p2Char.color, opacity: 0.8 }}>({p2Char.name})</span> {player2.name || 'P2'}
           </h2>
         </div>
-        <PlayerAvatar char={p2Char} flip={['anger', 'anxiety', 'ennui'].includes(p2Char.id)} size={96} />
+        <PlayerAvatar char={p2Char} flip={['anger', 'anxiety', 'ennui', 'sadness', 'envy', 'disgust'].includes(p2Char.id)} size={96} />
       </div>
 
       {/* Center: Games Grid */}

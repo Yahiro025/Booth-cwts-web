@@ -126,8 +126,8 @@ function CharacterPanel({ playerLabel, charIndex, name, onCharChange, onNameChan
             {items.map(({ char: c, offset }, i) => {
               const portrait = getCharacterPortrait(c.id)
               const flip =
-                (playerLabel === 'Player 1' && c.id === 'ennui') ||
-                (playerLabel === 'Player 2' && ['anger', 'fear', 'anxiety'].includes(c.id))
+                (playerLabel === 'Player 1' && ['ennui', 'joy'].includes(c.id)) ||
+                (playerLabel === 'Player 2' && ['anger', 'fear', 'anxiety', 'sadness', 'envy', 'disgust'].includes(c.id))
               
               let imgTransform = `${flip ? 'scaleX(-1) ' : ''}scale(1.7) translateZ(30px)`
               if (c.id === 'anxiety') {
